@@ -40,3 +40,30 @@ The new accessor opens `/` with `O_RDONLY`, requiring directory-read permission.
 
 If already inside an affected sandbox, launch this flake with a Nix 2.34.9
 client; the outer Nix command may otherwise fail before running the reproducer.
+
+## Proposed fix
+
+`nix-directory-opath.patch` changes directory accessor initialization to try
+`O_PATH | O_DIRECTORY` first, retaining the existing handling for regular files
+and symlinks. The same traversal-only helper opens the parent of a direct
+symlink accessor, so that parent need not be readable either. A failed directory
+open falls back to a readable open only for `ENOTDIR`. Directory enumeration
+still opens a readable descriptor and therefore still requires read permission.
+
+```sh
+nix run .#patched
+nix run .#verify
+nix build .#nix-patched
+nix build .#unit-tests
+./result/bin/nix-util-tests --gtest_filter='FSSourceAccessorTest.*'
+```
+
+`patched` runs the same two expressions with the patched 2.35.3 client.
+`verify` additionally checks permitted file reads, imports, directory listing,
+and symlinks, and asserts that forbidden file reads, directory listings, and
+symlinks to forbidden files remain denied.
+
+The patch includes a Linux unit test constructing an accessor for an
+execute-only directory. It checks readable descendants, direct symlink accessors
+(including dangling links and loops), modification-time tracking, and denied enumeration.
+It skips when the test user can bypass directory permissions (for example root).

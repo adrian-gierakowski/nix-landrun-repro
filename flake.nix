@@ -16,6 +16,9 @@
         system:
         let
           pkgs = import nixpkgs { inherit system; };
+          patchedComponents = pkgs.nixVersions.nixComponents_2_35.appendPatches [
+            ./nix-directory-opath.patch
+          ];
           landlockProbe = pkgs.runCommandCC "landlock-probe" { } ''
             mkdir -p "$out/bin"
             $CC -Wall -Wextra -Werror ${./landlock-probe.c} -o "$out/bin/landlock-probe"
@@ -32,7 +35,7 @@
                 ${landlockProbe}/bin/landlock-probe
                 work=$(mktemp -d)
                 trap 'rm -rf "$work"' EXIT
-                mkdir "$work/allowed"
+                mkdir "$work/allowed" "$work/denied"
                 sandbox=(
                   landrun --best-effort
                   --rox /nix/store --ro /proc --rw /dev/null --rw "$work/allowed"
@@ -60,6 +63,10 @@
         rec {
           repro = reproduce "nix-landrun-repro" pkgs.nixVersions.nix_2_35;
           control = reproduce "nix-landrun-control" pkgs.nixVersions.nix_2_34;
+          patched = reproduce "nix-landrun-patched" patchedComponents.nix-cli;
+          nix-patched = patchedComponents.nix-cli;
+          unit-tests = patchedComponents.nix-util-tests;
+          verify = runner "nix-landrun-verify" patchedComponents.nix-cli (builtins.readFile ./verify.sh);
           landlock-probe = landlockProbe;
           default = repro;
         }
